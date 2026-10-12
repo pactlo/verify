@@ -1,0 +1,7 @@
+{
+  "test:evidence-fixture": {
+    "publicKey": "MCowBQYDK2VwAyEAdSzQiyUr9lySzkG4YS+V3GLhQPHFI2bhEIOPurLrD1s=",
+    "environment": "test",
+    "since": "2026-10-12"
+  }
+}

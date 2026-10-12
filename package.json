@@ -1,0 +1,39 @@
+{
+  "name": "@pactlo/verify",
+  "version": "0.1.0",
+  "description": "Independent verifier for Pactlo evidence bundles: checks every event, Merkle proof, block signature and RFC 3161 timestamp offline.",
+  "license": "Apache-2.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./*": "./src/*.ts"
+  },
+  "bin": {
+    "pactlo-verify": "./src/cli.ts"
+  },
+  "scripts": {
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@types/node": "^24.19.2",
+    "typescript": "~6.0.3",
+    "vitest": "^5.0.3"
+  },
+  "dependencies": {
+    "@noble/curves": "2.4.0",
+    "@noble/hashes": "2.4.0",
+    "asn1js": "3.0.10",
+    "canonicalize": "5.1.0",
+    "pkijs": "3.4.1",
+    "zod": "4.6.6"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/pactlo/verify"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}
