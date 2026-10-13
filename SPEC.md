@@ -6,8 +6,8 @@ tested against each other byte for byte.
 
 ## 1. Goals
 
-Anyone holding an evidence bundle can check, offline and without trusting
-Pactlo, that:
+Anyone holding an evidence bundle (or a certificate of completion, which
+carries one) can check, offline and without trusting Pactlo, that:
 
 1. the recorded events are complete and unchanged since they were recorded;
 2. Pactlo committed to them in signed blocks;
@@ -85,13 +85,51 @@ unknown fields are rejected.
   event when the bundle was made).
 - `events`: every event of the chain, in order, with `block_no`, `leaf_index`
   and `proof` (sibling hashes, RFC 9162 audit path) once sealed.
-- `disclosures`: `{commitment, salt, pii_jcs}` for each commitment not erased.
+- `disclosures`: `{commitment, salt, pii_jcs}` for each commitment whose
+  personal data the bundle carries. A public bundle carries none; data erased
+  after a privacy request is never carried. Either way the hashes stay valid.
 - `blocks`: for each block holding an event, that block and every block up
   to the first timestamped block after it, with signature and copy locations.
 - `timestamps`: RFC 3161 tokens (DER, base64) for those timestamped blocks.
 - `documents`: `{name, sha256}` of the documents the chain is about.
 
-## 6. Verification
+## 6. Receipts (format v1)
+
+A receipt proves one event without the rest of its chain and without
+personal data. Fields are defined in `src/receipt.ts`:
+
+- `chain`: `id`, `kind`.
+- `event`: as in a bundle (`seq`, `recorded_at_micros`, `prev_hash`,
+  `payload_jcs`, `event_hash`, `block_no`, `leaf_index`, `proof`).
+- `blocks`, `timestamps`: as in a bundle, from the event's block up to the
+  first timestamped block after it.
+
+A verifier recomputes the event's hash from its contents (the previous hash
+is part of what is hashed, so the event cannot be moved), checks its
+inclusion proof, the blocks and the timestamps as in section 8, steps 5 to 8.
+Result: `verified` (in a signed block an authority timestamped),
+`incomplete` (not sealed or timestamped yet), or `failed`.
+
+Public pages use the receipt of the `agreement.sealed` event: its data names
+the SHA-256 of the signed copy and of the certificate of completion.
+
+## 7. Evidence in certificates, and updates
+
+A certificate of completion is a PDF/A-3 file that carries the agreement's
+evidence bundle as an associated file named `pactlo-evidence.json`
+(`/AFRelationship /Data`, subtype `application/json`), as it was when the
+agreement completed. Its newest events are usually not sealed or timestamped
+yet, so it verifies as `incomplete` on its own.
+
+An update is a bundle of the same chain made later, without personal data.
+Merging an update into the embedded bundle (`src/merge.ts`) keeps every event,
+disclosure, block and timestamp of the original and adds what the update
+proves. It MUST be refused if the update disagrees with the original about
+any event (hash, previous hash, contents or time), about the block of a
+sealed event, or about any block's hash, or if it leaves out an event the
+original has. The merged bundle is then verified as in section 8.
+
+## 8. Verification
 
 A verifier MUST, in order:
 
@@ -114,7 +152,7 @@ Result: `verified` (every check passes, every event timestamped),
 `incomplete` (every check passes; some events not yet sealed or timestamped),
 or `failed`.
 
-## 7. Long-term validity
+## 9. Long-term validity
 
 Hourly timestamps re-cover the whole history, so timestamps renew themselves
 (RFC 4998's renewal) as long as the authorities' certificates and SHA-256 stay
@@ -122,7 +160,7 @@ sound. If SHA-256 or an authority's algorithm weakens, Pactlo will timestamp
 the latest block with a stronger hash and publish a v2 of this specification;
 existing bundles stay checkable with their v1 timestamps until then.
 
-## 8. Legal note
+## 10. Legal note
 
 Bundles are designed to support authentication of electronic records (for
 example US Federal Rule of Evidence 902(14), and record retention under ESIGN

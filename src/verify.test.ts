@@ -135,6 +135,6 @@ describe("verifyBundle", () => {
     bundle.disclosures = []
     const report = await verifyBundle(bundle, { keys })
     expect(report.result).toBe("verified")
-    expect(report.events[0]?.personalData).toBe("erased")
+    expect(report.events[0]?.personalData).toBe("withheld")
   })
 })

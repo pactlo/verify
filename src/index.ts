@@ -1,4 +1,8 @@
+export { type BlockRecord, checkBlocks, checkTimestamps, existedBy } from "./blocks"
 export { bundleSchema, type EvidenceBundle } from "./bundle"
+export { mergeBundles } from "./merge"
+export { embeddedBundle, type Fingerprints, fingerprints } from "./pdf"
+export { type Receipt, type ReceiptReport, receiptSchema, verifyReceipt } from "./receipt"
 export * from "./spec"
 export { type CheckedTimestamp, verifyTimestamp } from "./timestamp"
 export {

@@ -1,8 +1,7 @@
+import { checkBlocks, checkTimestamps, existedBy } from "./blocks"
 import { bundleSchema, type EvidenceBundle } from "./bundle"
-import { base64ToBytes, bytesToHex, equalBytes, hexToBytes } from "./bytes"
+import { bytesToHex, equalBytes, hexToBytes } from "./bytes"
 import {
-  BLOCK_GENESIS_HASH,
-  blockHash,
   canonical,
   eventHash,
   genesisHash,
@@ -11,14 +10,7 @@ import {
   piiCommitment,
   verifyInclusion,
 } from "./spec"
-import { type CheckedTimestamp, verifyTimestamp } from "./timestamp"
-import {
-  SIGNING_KEYS,
-  type SigningKey,
-  TSA_ROOTS,
-  type TsaRoot,
-  verifyBlockSignature,
-} from "./trust"
+import { SIGNING_KEYS, type SigningKey, TSA_ROOTS, type TsaRoot } from "./trust"
 
 // Verifies an evidence bundle offline, trusting only the keys and roots
 // pinned in trust.ts. Every check is listed in the report; any failure makes
@@ -37,8 +29,9 @@ export type VerifiedEvent = {
   data: unknown
   country?: string
   // The personal data recorded with the event, checked against its
-  // commitment; "erased" after a privacy request.
-  personalData?: Record<string, string> | "erased"
+  // commitment; "withheld" when the bundle doesn't carry it (a public proof,
+  // or erased after a privacy request).
+  personalData?: Record<string, string> | "withheld"
   blockNo?: string
   // The earliest independent timestamp covering this event.
   existedBy?: { time: string; authorities: string[] }
@@ -57,9 +50,6 @@ export type VerifyOptions = {
   keys?: Record<string, SigningKey>
   roots?: Record<string, TsaRoot>
 }
-
-// Clocks drift; an authority may not date a block before it existed by more than this.
-const CLOCK_SKEW_MICROS = 5n * 60n * 1_000_000n
 
 export async function verifyBundle(input: unknown, options: VerifyOptions = {}): Promise<Report> {
   const keys = options.keys ?? SIGNING_KEYS
@@ -146,27 +136,29 @@ export async function verifyBundle(input: unknown, options: VerifyOptions = {}):
   // 4. Personal data behind commitments.
   const disclosures = new Map(bundle.disclosures.map((d) => [d.commitment, d]))
   let piiOk = true
-  const personal: (Record<string, string> | "erased" | undefined)[] = payloads.map((payload, i) => {
-    const commitment = typeof payload.pii === "string" ? payload.pii : null
-    if (!commitment) return undefined
-    const disclosure = disclosures.get(commitment)
-    if (!disclosure) return "erased"
-    const ok = equalBytes(
-      piiCommitment(hexToBytes(disclosure.salt), disclosure.pii_jcs),
-      hexToBytes(commitment),
-    )
-    if (!ok) {
-      piiOk = false
-      problems.push(`event ${bundle.events[i]?.seq}: personal data does not match its commitment`)
-      return undefined
-    }
-    return JSON.parse(disclosure.pii_jcs) as Record<string, string>
-  })
-  const erased = personal.filter((p) => p === "erased").length
+  const personal: (Record<string, string> | "withheld" | undefined)[] = payloads.map(
+    (payload, i) => {
+      const commitment = typeof payload.pii === "string" ? payload.pii : null
+      if (!commitment) return undefined
+      const disclosure = disclosures.get(commitment)
+      if (!disclosure) return "withheld"
+      const ok = equalBytes(
+        piiCommitment(hexToBytes(disclosure.salt), disclosure.pii_jcs),
+        hexToBytes(commitment),
+      )
+      if (!ok) {
+        piiOk = false
+        problems.push(`event ${bundle.events[i]?.seq}: personal data does not match its commitment`)
+        return undefined
+      }
+      return JSON.parse(disclosure.pii_jcs) as Record<string, string>
+    },
+  )
+  const withheld = personal.filter((p) => p === "withheld").length
   check(
     "personal data",
     piiOk,
-    `${bundle.disclosures.length} disclosures match their commitments${erased ? `; ${erased} erased on request` : ""}`,
+    `${bundle.disclosures.length} disclosures match their commitments${withheld ? `; ${withheld} not included` : ""}`,
     "see problems",
   )
 
@@ -204,47 +196,12 @@ export async function verifyBundle(input: unknown, options: VerifyOptions = {}):
   )
 
   // 6. Blocks: recomputed, signed by a pinned key, linked to each other.
-  let blocksOk = true
-  const environments = new Set<string>()
-  for (const block of bundle.blocks) {
-    const where = `block ${block.block_no}`
-    const hash = blockHash({
-      blockNo: BigInt(block.block_no),
-      firstLeaf: BigInt(block.first_leaf),
-      leafCount: block.leaf_count,
-      merkleRoot: hexToBytes(block.merkle_root),
-      prevBlockHash: hexToBytes(block.prev_block_hash),
-      createdAtMicros: BigInt(block.created_at_micros),
-    })
-    if (!equalBytes(hash, hexToBytes(block.block_hash))) {
-      blocksOk = false
-      problems.push(`${where}: hash does not match its header`)
-    }
-    const key = keys[block.key_id]
-    if (!key || !verifyBlockSignature(hash, block.key_id, base64ToBytes(block.signature), keys)) {
-      blocksOk = false
-      problems.push(
-        `${where}: signature ${key ? "is invalid" : `is by an unknown key (${block.key_id})`}`,
-      )
-    } else {
-      environments.add(key.environment)
-    }
-    const before = blocks.get((BigInt(block.block_no) - 1n).toString())
-    if (before && block.prev_block_hash !== before.block_hash) {
-      blocksOk = false
-      problems.push(`${where}: does not link to block ${before.block_no}`)
-    }
-    if (
-      block.block_no === "1" &&
-      !equalBytes(hexToBytes(block.prev_block_hash), BLOCK_GENESIS_HASH)
-    ) {
-      blocksOk = false
-      problems.push("block 1: does not start from the genesis")
-    }
-  }
+  const blockCheck = checkBlocks(bundle.blocks, keys)
+  problems.push(...blockCheck.problems)
+  const environments = blockCheck.environments
   check(
     "blocks",
-    blocksOk,
+    blockCheck.ok,
     `${bundle.blocks.length} blocks recomputed and signed by Pactlo`,
     "see problems",
   )
@@ -258,39 +215,11 @@ export async function verifyBundle(input: unknown, options: VerifyOptions = {}):
   )
 
   // 7. Timestamps from independent authorities.
-  const stamps = new Map<string, CheckedTimestamp[]>()
-  let stampsOk = true
-  for (const stamp of bundle.timestamps) {
-    const block = blocks.get(stamp.block_no)
-    const root = roots[stamp.provider]
-    if (!block || !root) {
-      stampsOk = false
-      problems.push(
-        `timestamp on block ${stamp.block_no}: ${block ? `unknown authority ${stamp.provider}` : "block not in bundle"}`,
-      )
-      continue
-    }
-    try {
-      const checked = await verifyTimestamp({
-        token: base64ToBytes(stamp.token),
-        data: hexToBytes(block.block_hash),
-        rootPem: root.pem,
-      })
-      const genMicros = BigInt(checked.genTime.getTime()) * 1000n
-      if (genMicros + CLOCK_SKEW_MICROS < BigInt(block.created_at_micros)) {
-        throw new Error("dated before the block was made")
-      }
-      stamps.set(stamp.block_no, [...(stamps.get(stamp.block_no) ?? []), checked])
-    } catch (error) {
-      stampsOk = false
-      problems.push(
-        `${stamp.provider} timestamp on block ${stamp.block_no}: ${(error as Error).message}`,
-      )
-    }
-  }
+  const stampCheck = await checkTimestamps(bundle.blocks, bundle.timestamps, roots)
+  problems.push(...stampCheck.problems)
   check(
     "timestamps",
-    stampsOk,
+    stampCheck.ok,
     `${bundle.timestamps.length} RFC 3161 timestamps from pinned authorities`,
     "see problems",
   )
@@ -311,22 +240,8 @@ export async function verifyBundle(input: unknown, options: VerifyOptions = {}):
       ...(event.block_no ? { blockNo: event.block_no } : {}),
     }
     if (event.block_no === null) return verified
-    let at = BigInt(event.block_no)
-    for (let steps = 0; steps < 10_000; steps++) {
-      const found = stamps.get(at.toString())
-      if (found?.length) {
-        const earliest = found.reduce((a, b) => (a.genTime <= b.genTime ? a : b))
-        verified.existedBy = {
-          time: earliest.genTime.toISOString(),
-          authorities: found.map((f) => f.authority),
-        }
-        break
-      }
-      const next = blocks.get((at + 1n).toString())
-      const current = blocks.get(at.toString())
-      if (!next || !current || next.prev_block_hash !== current.block_hash) break
-      at++
-    }
+    const time = existedBy(event.block_no, bundle.blocks, stampCheck.stamps)
+    if (time) verified.existedBy = time
     return verified
   })
   const covered = events.filter((e) => e.existedBy).length

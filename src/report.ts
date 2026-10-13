@@ -33,7 +33,8 @@ export function formatReport(report: Report): string {
         ? `existed by ${event.existedBy.time} (${event.existedBy.authorities.join(", ")})`
         : "not timestamped yet"
       lines.push(`  ${event.seq}. ${event.recordedAt}  ${event.type}  [${by}]`)
-      if (event.personalData === "erased") lines.push("      personal data: erased on request")
+      if (event.personalData === "withheld")
+        lines.push("      personal data: not included (a public proof, or erased on request)")
       else if (event.personalData) {
         lines.push(
           `      ${Object.entries(event.personalData)
