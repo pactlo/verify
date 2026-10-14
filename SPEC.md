@@ -35,6 +35,13 @@ Payload fields: `v` (1), `type`, `org` (workspace or null), `actor`
 `{type, id?}`, `subject` `{type, id}`, `data` (per type; never personal
 data), `occurred_at`, `request_id`, optional `country`, optional `pii`.
 
+A chain belongs to one workspace at a time. Only an agreement's chain can
+change workspace, while the agreement is an unsent draft, and only right after
+an `agreement.moved` event (`data.from_organization_id`,
+`data.to_organization_id`) written in the old workspace. Events before it carry
+the old `org`, events after it the new one. The hashes above do not depend on
+this rule; it is enforced where the events are written.
+
 ## 3. Personal data
 
 IP addresses, user agents, emails and names never enter a payload. They are
