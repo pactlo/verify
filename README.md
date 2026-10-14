@@ -2,6 +2,16 @@
 
 Checks Pactlo evidence offline, without trusting Pactlo.
 
+It isn’t on npm yet. Until it is, run it from a copy of this repository
+(Node.js 22 or later):
+
+```sh
+git clone https://github.com/pactlo/verify && cd verify && npm install
+npx tsx src/cli.ts certificate.pdf
+```
+
+Once published, the same commands run as `npx @pactlo/verify`:
+
 ```sh
 npx @pactlo/verify certificate.pdf              # the bundle a certificate of completion carries
 npx @pactlo/verify certificate.pdf update.json  # plus the latest proof from pactlo.com/verify
