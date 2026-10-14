@@ -23,6 +23,11 @@ export const SIGNING_KEYS: Record<string, SigningKey> = {
     environment: "dev",
     since: "2026-10-12",
   },
+  "arn:aws:kms:us-east-1:265308423444:key/4bf5ab00-c2b0-4d0f-bc8a-67883cfb1263": {
+    publicKey: "MCowBQYDK2VwAyEAoWbBdP5duYgJDvYzrKlJ6Z93c8Z8TCGqJvSdHtQ6xx4=",
+    environment: "production",
+    since: "2026-10-14",
+  },
 }
 
 // Ed25519 SubjectPublicKeyInfo: a fixed 12-byte header, then the 32-byte key.
